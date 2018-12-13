@@ -1,0 +1,154 @@
+:doctype: article
+:blank: pass:[ +]
+
+:sectnums!:
+
+= SEIS 665 Assignment 10: Docker
+Jason Baker <bake2352@stthomas.edu>
+1.4, 11/17/2018
+
+== Overview
+Containers are revolutionizing the way we package and deploy applications. Traditionally, we would install applications on bare metal hardware or virtual machines in our computing environment. We would have to carefully place applications on infrastructure to minimize conflicting requirements such as different versions of shared libraries. Containers let us partition applications and related dependencies on a shared computing platform.
+
+In this week's assignment, you will build a Docker container using a Dockerfile and a CI/CD infrastructure pipeline.
+
+== Requirements
+
+You need to have a personal AWS account and GitHub account for this assignment.
+
+== The assignment
+
+Let's start shipping those containers!
+
+=== Build Image Pipeline
+
+It is a common practice to automate the building of Docker images using a CI/CD pipeline. 
+Launch a Jenkins stack in the us-east-1 region using the following template:
+
+  https://s3.amazonaws.com/seis665/jenkins-cf.json
+
+Create a new GitHub Classroom repository by clicking on this link: https://classroom.github.com/assignment-invitations/eeea11fb5604fd931c30393c935aba6b
+
+Create a new Jenkins pipeline job called `docker-pipeline` and configure it to use a Jenkinsfile located in your
+Classroom repository. Note that since you are using a private repository for this assignment, you will need to enter
+GitHub credentials for the git configuration in the pipeline job. The pipeline job will use a personal access token to access your private GitHub repository and retrieve a Jenkinsfile. You can reference the lecture PowerPoint if you
+don't recall how to set this up.
+
+=== Python web application
+
+Let's start by creating a Python web application file in our GitHub repository. It's common to store our application source files and build pipeline files in the same repo. Create a Python web application file called `site.py` located in a sub-directory called `app` with the following contents (note: the spacing is importantq for linting purposes!):
+
+----
+from flask import Flask
+app = Flask(__name__)
+
+
+@app.route('/')
+def root_page():
+    return '<html><body><b>Working with containers is super fun!</b></body></html>'
+
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=8080)
+----
+
+Create a Python requirements file called `requirements.txt` in the same directory as the `site.py` file with the following contents:
+
+  Flask==1.0.2
+
+=== Application Pipeline
+
+Your Jenkinsfile will have three stages: `Linting`, `Build`, `Test`. The `Linting` stage will perform a linting static test on the Python application code. The `Build` stage will use a Dockerfile to build a new Docker image. The `Test` stage will create a new Docker container using the Docker image and test it to see if it is working properly. Finally, we will add a special `post` stage (it's not technically part of the `stages` block) which will delete the Docker container built during the pipeline run.
+
+Let's look at the requirements for each of these stages.
+
+=== The Linting stage
+
+Lint the Python script files in your repository using the flake8 application. For example:
+
+  flake8 <list of files>
+
+If you encounter a linting error, fix the error in the `site.py` script file and attempt to run the pipeline again. Don't build the other stages until the Python script cleanly lints. Be careful: the `flake8` command will fail silently if you give it a file or directory which doesn't exist. In other words, the pipeline won't necessarily fail at this stage if you configure this command incorrectly. 
+
+=== The Build Stage
+
+The `Build` stage will use a Dockerfile to create a new container image called `classweb` with a tag equivalent to the job build number (remember this value is available in an environment variable). Here are the configuration requirements for the Docker image:
+
+  * The new image must be based off the `ubuntu` image using the `xenial` version.
+  * Set the maintainer of the image to your name and email address.
+  * The image should expose port 8080.
+  * Update the package repositories using `apt-get update`
+  * Install the following software packages inside the container: `python-pip` and `python-dev` (remember this is an Ubuntu image so we use `apt-get` to install packages, not `yum`)
+  * Copy the `site.py` and `requirements.txt` files into the `/app` directory in the container.
+  * From the `/app` directory in the container, run the following pip command: `pip install -r requirements.txt`
+  * When a container is created, Docker *must always* run the command `python`. Additionally, the container will use `site.py` as a default optional argument to the `python` command.
+
+=== The Test Stage
+
+The `Test` stage will validate that the Docker image was created properly. The pipeline should create a new container called `classweb1` using the image built in the previous stage. The container should have the following configuration settings:
+
+  * The container should run in a detached (daemon) mode.
+  * The container should map port 8080 within the container to port 80 on the host server.
+
+After launching the container, the pipeline should test the container using the curl command. The container is running on the Jenkins slave node, so you should make an HTTP request to the local host.
+
+  curl $(curl 169.254.169.254/latest/meta-data/local-ipv4) | grep "super"
+
+This command might look a little strange (notice the two curl commands). We're querying the EC2 instance
+meta-data to find the private IP address of the build node, and then making a curl request to this IP.
+
+=== The `post` Stage
+
+Oftentimes it's helpful to add a stage to the pipeline which always runs after all of the other stages have 
+completed -- even if one of those stages has failed. We can use this configuration to clean up any
+build artifacts remaining after the pipeline executes. For example, this pipeline creates a container
+called `classweb1`. If the pipeline doesn't remove this container after execution, subsequent builds
+will fail because the pipeline will try to create a container which already exists (maybe you already
+discovered this during your testing).
+
+The `post` stage appears in its own block after the `stages` block in the pipeline:
+
+----
+pipeline {
+
+  stages {
+  
+  }
+  
+  post {
+    always {
+      echo "code which should always run goes here"
+    }
+  }
+}
+----
+
+Add code to the `post` stage which will stop and remove the container created in the `Test` stage. Hint: The code should only 
+try to remove the container if it exists, otherwise this stage will generate an error. 
+
+=== Console Output
+
+Once you have the pipeline working properly, copy the console output from the last 
+successful build into a file called `console.txt` and check it into the GitHub repository.
+
+=== Check your work
+
+Here is what the contents of your git repository should look like before final submission:
+
+====
+&#x2523; Dockerfile +
+&#x2523; Jenkinsfile +
+&#x2523; console.txt +
+&#x2517; /app +
+&nbsp;&nbsp;&nbsp;&#x2523; site.py +
+&nbsp;&nbsp;&nbsp;&#x2523; requirements.txt +
+
+====
+
+
+=== Terminate application environment
+
+The last step in the assignment is to terminate your CloudFormation stack on AWS.
+
+== Submitting your assignment
+I will review your published work on GitHub after the homework due date.
