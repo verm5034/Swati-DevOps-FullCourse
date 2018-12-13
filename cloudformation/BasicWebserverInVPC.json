@@ -1,0 +1,100 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Resources": {
+    "classVpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "EnableDnsSupport": "true",
+        "EnableDnsHostnames": "true",
+        "CidrBlock": "10.0.0.0/16",
+        "Tags": [
+          {
+            "Key": "Environment",
+            "Value": "Test"
+          }
+        ]
+      }
+    },
+
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {}
+    },
+    "VPCGatewayAttachment": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "InternetGatewayId": {
+          "Ref": "InternetGateway"
+        },
+        "VpcId": {
+          "Ref": "classVpc"
+        }
+      }
+    },
+    "PublicRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "classVpc"
+        }
+      }
+    },
+    "PublicRoute": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        },
+        "GatewayId": {
+          "Ref": "InternetGateway"
+        }
+      },
+      "DependsOn": [
+        "InternetGateway"
+      ]
+    },
+    "publicSubnet1RTassoc": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        },
+        "SubnetId": {
+          "Ref": "publicSubnet1"
+        }
+      }
+    }
+  },
+  "Parameters": {
+    "InstanceType": {
+      "Description": "Server instance type",
+      "Type": "String",
+      "Default": "t2.micro",
+      "AllowedValues": [
+        "t2.micro",
+        "t2.medium"
+      ],
+      "ConstraintDescription": "Must be a valid EC2 type."
+    }
+  },
+  "Outputs": {
+    "weburl": {
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "http://",
+            {
+              "Fn::GetAtt": [
+                "WebServer",
+                "PublicIp"
+              ]
+            }
+          ]
+        ]
+      },
+      "Description": "Webserver URL"
+    }
+  }
+}

@@ -1,0 +1,369 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Metadata": {
+    "Template": {"Regions": "Launch only in us-east-1"}
+  },
+  "Resources": {
+    "JenkinsAccessRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+           "Version" : "2012-10-17",
+           "Statement": [ {
+              "Effect": "Allow",
+              "Principal": {
+                 "Service": [ "ec2.amazonaws.com" ]
+              },
+              "Action": [ "sts:AssumeRole" ]
+           } ]
+        },
+        "Path": "/"
+     }
+    },
+    "S3Policy": {
+       "Type": "AWS::IAM::Policy",
+       "Properties": {
+          "PolicyName": "s3Access",
+          "PolicyDocument": {
+             "Version" : "2012-10-17",
+             "Statement": [
+               {
+                 "Effect": "Allow",
+                 "Action": [
+                   "s3:GetObject",
+                   "s3:PutObject"
+                 ],
+                 "Resource": "*"
+                }
+               ]
+          },
+          "Roles": [ { "Ref": "JenkinsAccessRole" }]
+       }
+    },
+    "ECAccessPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+         "PolicyName": "ec2Access",
+         "PolicyDocument": {
+            "Version" : "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": [
+                  "ec2:DescribeInstances",
+                  "ec2:AttachVolume",
+                  "ec2:DescribeSubnets",
+                  "ec2:DescribeImages",
+                  "ec2:DescribeKeyPairs",
+                  "ec2:DescribeSecurityGroups",
+                  "ec2:DescribeAvailabilityZones",
+                  "ec2:RunInstances",
+                  "ec2:StopInstances",
+                  "ec2:StartInstances",
+                  "ec2:CreateSubnet",
+                  "ec2:TerminateInstances",
+                  "ec2:AttachVolume",
+                  "ec2:DetachVolume",
+                  "ec2:CreateVolume",
+                  "ec2:CreateTags"
+                ],
+                "Resource": "*"
+               }
+              ]
+         },
+         "Roles": [ { "Ref": "JenkinsAccessRole" }]
+      }
+   },
+    "JenkinsInstanceProfile": {
+       "Type": "AWS::IAM::InstanceProfile",
+       "Properties": {
+          "Path": "/",
+          "Roles": [ { "Ref": "JenkinsAccessRole" } ]
+       }
+    },
+    "JenkinsVpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+          "EnableDnsSupport": "true",
+          "EnableDnsHostnames": "true",
+          "CidrBlock": "10.120.0.0/16",
+          "Tags" : [
+            { "Key": "Name",
+              "Value": "Jenkins-VPC"
+            }
+          ]
+        }
+    },
+    "JenkinsSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": {
+            "Ref": "JenkinsVpc"
+        },
+        "GroupDescription": "Security group rules for Jenkins host.",
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": {"Ref": "YourIp"}
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "8080",
+            "ToPort": "8080",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "Tags" : [
+          { "Key": "Name",
+            "Value": "Jenkins-SG"
+          }
+        ]
+      }
+    },
+    "JenkinsSGIngressTCP50000": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Metadata": {
+        "Comment": "Jenkins agent ingress security rule"
+      },
+      "Properties" : {
+        "IpProtocol": "tcp",
+        "FromPort": "50000",
+        "ToPort": "50000",
+        "SourceSecurityGroupId": { "Ref": "JenkinsSecurityGroup" },
+        "GroupId": { "Fn::GetAtt": ["JenkinsSecurityGroup", "GroupId"]}
+      }
+    },
+    "InternetGateway": {
+        "Type": "AWS::EC2::InternetGateway",
+        "Properties": {}
+    },
+    "VPCGatewayAttachment": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "InternetGatewayId": {
+          "Ref": "InternetGateway"
+        },
+        "VpcId": {
+          "Ref": "JenkinsVpc"
+        }
+      }
+    },
+    "PublicSubnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+            "Ref": "JenkinsVpc"
+        },
+        "MapPublicIpOnLaunch" : "true",
+        "CidrBlock": "10.120.1.0/24",
+        "AvailabilityZone" : {
+          "Fn::Select" : [ "0", { "Fn::GetAZs" : { "Ref" : "AWS::Region" }}]
+        },
+        "Tags" : [
+          { "Key": "Name",
+            "Value": "Jenkins-Public-Subnet"
+          }
+        ]
+      }
+    },
+    "PublicSubnet1RouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "JenkinsVpc"
+        },
+        "Tags" : [
+          { "Key": "Name",
+            "Value": "Jenkins-RT"
+          }
+        ]
+      }
+    },
+    "PublicSubnet1Route": {
+        "Type": "AWS::EC2::Route",
+        "Properties": {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "RouteTableId": {
+                "Ref": "PublicSubnet1RouteTable"
+            },
+            "GatewayId": {
+                "Ref": "InternetGateway"
+            }
+        },
+        "DependsOn": [
+            "InternetGateway"
+        ]
+    },
+    "PublicSubnet1RouteAssociation": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": {
+            "Ref": "PublicSubnet1RouteTable"
+        },
+        "SubnetId": {
+            "Ref": "PublicSubnet1"
+        }
+      }
+    },
+    "JenkinsServer": {
+      "Type": "AWS::EC2::Instance",
+      "Properties" : {
+        "IamInstanceProfile": { "Ref": "JenkinsInstanceProfile"},
+        "InstanceType": "t2.medium",
+        "ImageId": "ami-0371c52b98b0f3c73",
+        "SubnetId": { "Ref": "PublicSubnet1" },
+        "KeyName": { "Ref": "KeyName" },
+        "SecurityGroupIds": [
+          { "Ref": "JenkinsSecurityGroup"}
+        ],
+        "UserData" : {
+          "Fn::Base64" : {
+            "Fn::Join" : [
+              "", [
+                "#!/bin/bash -xe\n",
+                "docker swarm init\n",
+                "echo \"",{"Ref": "JenkinsUsername"},"\" | docker secret create jenkins-user -\n",
+                "echo \"",{"Ref": "JenkinsPassword"},"\" | docker secret create jenkins-pass -\n",
+                "docker service create --name jenkins -d -p 8080:8080 -p 50000:50000 -e JAVA_OPTS=-Djenkins.install.runSetupWizard=false --env JENKINS_SLAVE_AGENT_PORT=50000 --mount type=volume,source=jenkins-vol,destination=/var/jenkins_home --secret jenkins-user --secret jenkins-pass jenkins:seis\n",
+                "sleep 120\n",
+                "# Signal the status from cfn-init\n",
+                "/usr/local/bin/cfn-signal -e $? ",
+                "         --stack ",
+                {
+                    "Ref": "AWS::StackName"
+                },
+                "         --resource JenkinsServer ",
+                "         --region ",
+                {
+                    "Ref": "AWS::Region"
+                },
+                "\n",
+                "# Signal again because sometimes the first attempt fails.\n",
+                "sleep 60\n",
+                "/usr/local/bin/cfn-signal -e $? ",
+                "         --stack ",
+                {
+                    "Ref": "AWS::StackName"
+                },
+                "         --resource JenkinsServer ",
+                "         --region ",
+                {
+                    "Ref": "AWS::Region"
+                },
+                "\n"
+              ]
+            ]
+          }
+        },
+        "Tags" : [
+          { "Key": "Name",
+            "Value": "JenkinsServer"
+          }
+        ]
+      },
+      "CreationPolicy": {
+          "ResourceSignal": {
+              "Timeout": "PT15M"
+          }
+      }
+    },
+    "JenkinsSlaveGroup": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "DependsOn": ["JenkinsServer"],
+      "Properties": {
+        "LaunchConfigurationName": {"Ref": "JenkinsSlaveLaunchConf"},
+        "VPCZoneIdentifier": [{ "Ref": "PublicSubnet1" }],
+        "MinSize": { "Ref": "JenkinsSlaveNum" },
+        "MaxSize": { "Ref": "JenkinsSlaveNum" },
+        "DesiredCapacity": { "Ref": "JenkinsSlaveNum" },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "jenkins slave",
+            "PropagateAtLaunch": "true"
+          }
+        ]
+      }
+    },
+    "JenkinsSlaveLaunchConf": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "DependsOn" : ["VPCGatewayAttachment"],
+      "Properties": {
+          "InstanceType": "t2.medium",
+          "IamInstanceProfile": { "Ref": "JenkinsInstanceProfile"},
+          "ImageId": "ami-0371c52b98b0f3c73",
+          "KeyName": { "Ref": "KeyName" },
+          "SecurityGroups": [
+            { "Ref": "JenkinsSecurityGroup"}
+          ],
+          "UserData" : {
+            "Fn::Base64" : {
+              "Fn::Join" : [
+                "", [
+                  "#!/bin/bash -xe\n",
+                  "docker swarm init\n",
+                  "echo \"",{"Ref": "JenkinsUsername"},"\" | docker secret create jenkins-user -\n",
+                  "echo \"",{"Ref": "JenkinsPassword"},"\" | docker secret create jenkins-pass -\n",
+                  "docker service create --name jenkinsagent -d ",
+                  "-e USER_NAME_SECRET=\"/run/secrets/jenkins-user\" ",
+                  "-e PASSWORD_SECRET=\"/run/secrets/jenkins-pass\" ",
+                  "-e COMMAND_OPTIONS=\"-master http://",
+                  {"Fn::GetAtt": ["JenkinsServer", "PrivateIp"]},
+                  ":8080 -labels 'linux' -disableClientsUniqueId -executors 2\" ",
+                  "--mount type=bind,src=/workspace,dst=/workspace ",
+                  "--mount type=bind,src=//var/run/docker.sock,dst=/var/run/docker.sock ",
+                  "--secret jenkins-user ",
+                  "--secret jenkins-pass ",
+                  "jenkinsagent:seis"
+                ]
+              ]
+            }
+          }
+      }
+    }
+  },
+  "Parameters": {
+    "JenkinsUsername": {
+        "Description": "Jenkins administrative username.",
+        "Type": "String",
+        "Default": "admin"
+    },
+    "JenkinsPassword": {
+        "Description": "Jenkins administrative password.",
+        "Type": "String",
+        "NoEcho": "true"
+    },
+    "JenkinsSlaveNum": {
+      "Description": "Number of Jenkins build slave nodes.",
+      "Type": "Number",
+      "MinValue": "1",
+      "MaxValue": "5",
+      "Default": "1"
+    },
+    "KeyName": {
+      "Description": "Name of your EC2 KeyPair to enable SSH access to the instances.",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription": "must be the name of an existing EC2 KeyPair."
+    },
+    "YourIp": {
+      "Description": "The current CIDR IP address of your workstation (x.x.x.x/32). http://checkip.amazonaws.com/",
+      "Type": "String",
+      "AllowedPattern": "^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])(\\/(1[6-9]|2[0-9]|3[0-2]))$",
+      "ConstraintDescription": "Must be a valid IP CIDR range of the form x.x.x.x/x."
+    }
+  },
+  "Outputs": {
+    "JenkinsIp" : {
+      "Value": {"Fn::GetAtt": ["JenkinsServer", "PublicIp"]},
+      "Description": "Jenkins server public IP address"
+    }
+  }
+}
